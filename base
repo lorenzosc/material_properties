@@ -1,0 +1,250 @@
+import numpy as np
+import math
+import openpyxl
+import scipy.integrate as integrate
+import scipy.interpolate as interpolate
+
+
+def s_fun_L(HWMW: np.array, c: np.array, f: np.array, 
+            T: np.array, Temp: np.array) -> np.array:
+    
+#HWMW é um array com 2 valores: a largura à meia potência para o lado esquerdo
+#e direito
+#c é um array de três valores: o calor específico para a temperatura mínima
+#o valor máximo e a temperatura máxima
+#T é um array de três valores: as temperatura mínima, a para o calor específico
+# máximo e a temperatura máxima
+#f é um array de dois valores: a fração para o lado minus e para o lado plus
+#Temp é o array de temperaturas para a retirada das informações
+
+    dcb_minus = f[0]*(T[1]-T[0])
+    dcb_plus = f[1]*(T[1]-T[2])
+
+    c_s_minus = f[0]*(c[1]-c[0])/(T[1]-T[0])
+    c_s_plus = f[1]*(c[1]-c[2])/(T[1]-T[2])
+    
+    x_minus = T[0]-T[1]
+    x_plus = T[2]-T[1]
+    
+    A_minus = c[1] - c[0] - dcb_minus
+    A_plus = c[1] - c[2] - dcb_plus
+    
+    sb_minus, dum = s_lorentz(HWMW[0], c[1], A_minus, c_s_minus, T[1], [T[0]])
+    sa_star = sb_minus - x_minus*c[0]/T[0]
+    
+    sc_plus, dum = s_lorentz(HWMW[1], c[1], A_plus, c_s_plus, T[1], [T[2]])
+    sd_star = sc_plus - x_plus*c[2]/T[2]
+
+    LHeat = (sd_star - sa_star)*T[1]
+    
+    #busca binária
+    l = 0
+    r = len(Temp) - 1
+    while r != l:
+        m = (r+l)//2
+        if Temp[m] >= T[1]:
+            r = m
+        else:
+            l = m+1
+    aux = r
+            
+    Temp_left, Temp_right = np.split(Temp, [aux])
+    
+    s_T_plus, c_T_plus = s_lorentz(HWMW[1], c[1], A_plus, c_s_plus, T[1], Temp_right)
+    s_T_minus, c_T_minus = s_lorentz(HWMW[0], c[1], A_minus, c_s_minus, T[1], Temp_left)
+
+    s_T = np.append(s_T_minus, s_T_plus)
+    c_T = np.append(c_T_minus, c_T_plus)
+    
+    return np.array([s_T, c_T, LHeat, Temp_left, Temp_right])
+
+#equação de lorentz para a entropia e o calor específico.
+def s_lorentz(w: float, c_max: float, A: float, c_slope: float, T_max: float, 
+              Temp: np.ndarray) -> np.array:
+    #criando as listas de saída
+    s_T = []
+    c_T = []
+    
+    for T in Temp:
+        s_T.append( (c_max-A)*math.log(T/T_max) +  c_slope*((T-T_max) - \
+            T_max*math.log(T/T_max)) \
+            + A/(2* ((T_max/w)**2 + 1) ) * (2*math.log(T/T_max) + 2*T_max/w**2 \
+            * math.atan((T-T_max)/w) - 1/w * math.log(((T-T_max)/w)**2 + 1) ))
+    
+        c_T.append( c_max-A + c_slope*(T-T_max) + A/(1+((T-T_max)/w)**2) )
+    
+    #rearranjando como um np.array
+    s_T = np.array([s_T])
+    c_T = np.array([c_T])
+    
+    return np.array([s_T, c_T])
+
+def extract_data(path: str, sheet_name = "Sheet 1") -> list:
+    wb = openpyxl.load_workbook(path, data_only=True)
+    sheet = wb.get_sheet_by_name(sheet_name)
+    T = np.array([sheet["A1"].value, sheet["D1"].value, sheet["A"][-1].value])
+    Cmax = sheet["E1"].value
+    Cminus = sheet["F1"].value
+    Cplus = sheet["G1"].value
+    Hminus = sheet["H1"].value
+    Hplus = sheet["I1"].value
+    h = sheet["J1"].value
+    
+    temp = np.array([cell.value for cell in sheet["A"]])
+    c = np.array([cell.value for cell in sheet["B"]])
+    s = np.array([cell.value for cell in sheet["C"]])
+    C = np.array([Cminus, Cmax, Cplus])
+    H = np.array([Hminus, Hplus])
+    
+    return [temp, c, s, T, C, H, h]
+    
+def right_optimization(temp, s_experimental, T, C, H, h, c1=1, c3=0, Fl=0.1, c2_begin=1, 
+                       c2_end = 3, c2_steps = 10, c4_begin = 0, c4_end = 100,
+                       c4_steps = 10, fr_begin = 0, fr_end = 0.2, fr_steps = 10):
+
+    c2_stepsize = (c2_end-c2_begin)/c2_steps
+    c4_stepsize = (c4_end-c4_begin)/c4_steps
+    fr_stepsize = (fr_end-fr_begin)/fr_steps
+    
+    c2arange = np.arange(c2_begin, c2_end, c2_stepsize)
+    c4arange = np.arange(c4_begin, c4_end, c4_stepsize)
+    frarange = np.arange(fr_begin, fr_end, fr_stepsize)
+    
+    H[0] /= c1
+    C[0] += c3
+    Cplus = C[2]
+    Hplus = H[1]
+    
+    FR, C2, C4, EMED, EMAX = [[] for i in range(5)]
+    
+    for c2 in c2arange:
+        for c4 in c4arange:
+            for fr in frarange:
+                
+                C[2] = Cplus + c4
+                H[1] = Hplus/c2
+                F = np.array([Fl, fr])
+                
+                s, cs, L, E, D = s_fun_L(H, C, F, T, temp)
+                
+                sesq = [s_experimental[1].copy()]
+                for i in range(1,len(temp)):
+                    sesq.append(sesq[-1]+integrate.simps(cs[i-1:i+1], x=temp[i-1:i+1], even='avg')/((temp[1]-temp[2])/2))
+                
+                emax = 0
+                emed = 0
+                for sexp, sprog in zip(s_experimental[1:], sesq):
+                    try:
+                        erro = abs((sexp-sprog)/sexp)
+                    except:
+                        erro = 0
+                    emax = max(erro, emax)
+                    emed += erro
+                emed /= (len(s_experimental)-1)
+                
+                FR.append(fr)
+                C2.append(c2)
+                C4.append(c4)
+                EMED.append(emed)
+                EMAX.append(emax)
+                
+    minimum_mean_error = min(EMED)
+    index = EMED.index(minimum_mean_error)
+    fr = FR[index]
+    c2 = C2[index]
+    c4 = C4[index]
+    emax = EMAX[index]
+    return [c2, c4, Fr, EMED, EMAX]
+       
+def left_optimization(temp, s_experimental, T, C, H, c2=1, c4=0, Fr=0.1, c1_begin=1, 
+                       c1_end = 3, c1_steps = 10, c3_begin = 0, c3_end = 100,
+                       c3_steps = 10, fl_begin = 0, fl_end = 0.2, fl_steps = 10):
+
+    c1_stepsize = (c1_end-c1_begin)/c1_steps
+    c3_stepsize = (c3_end-c3_begin)/c3_steps
+    fl_stepsize = (fl_end-fl_begin)/fl_steps
+    
+    c1arange = np.arange(c1_begin, c1_end, c1_stepsize)
+    c3arange = np.arange(c3_begin, c3_end, c3_stepsize)
+    flarange = np.arange(fl_begin, fl_end, fl_stepsize)
+    
+    H[1] /= c2
+    C[2] += c4
+    Cminus = C[0]
+    Hminus = H[0]
+    
+    FL, C1, C3, EMED, EMAX = [[] for i in range(5)]
+    
+    for c1 in c1arange:
+        for c3 in c3arange:
+            for fl in flarange:
+                
+                C[0] = Cminus + c3
+                H[0] = Hminus/c1
+                F = np.array([fl, Fr])
+                
+                s, cs, L, E, D = s_fun_L(H, C, F, T, temp)
+                
+                sesq = [s_experimental[1].copy()]
+                for i in range(1,len(temp)):
+                    sesq.append(sesq[-1]+integrate.simps(cs[i-1:i+1], x=temp[i-1:i+1], even='avg')/((temp[1]-temp[2])/2))
+                
+                emax = 0
+                emed = 0
+                for sexp, sprog in zip(s_experimental[1:], sesq):
+                    try:
+                        erro = abs((sexp-sprog)/sexp)
+                    except:
+                        erro = 0
+                    emax = max(erro, emax)
+                    emed += erro
+                emed /= (len(s_experimental)-1)
+                
+                FL.append(fl)
+                C1.append(c1)
+                C3.append(c3)
+                EMED.append(emed)
+                EMAX.append(emax)
+                
+    minimum_mean_error = min(EMED)
+    index = EMED.index(minimum_mean_error)
+    fl = FL[index]
+    c1 = C1[index]
+    c3 = C3[index]
+    emax = EMAX[index] 
+    return [c1, c3, fl, EMED, EMAX]
+    
+def interpolated_curves(temp, s0, H, hwfm, hwpm, cminus, cmax, cplus, Tmax, fl, fr, H_objective):
+    
+    def spline(param: list, campo: list = H, analys : list = H_objective) -> list:
+        tck = interpolate.splrep(campo, param)
+        return interpolate.splev(analys, tck)
+    
+    Hl = spline(hwfm)
+    Hr = spline(hwpm)
+    Cmin = spline(cminus)
+    Cpl = spline(cplus)
+    Cmx = spline(cmax)
+    Tmx = spline(Tmax)
+    fleft = spline(fl)
+    fright = spline(fr)
+    sini = spline(s0)
+    
+    matrix = []
+    
+    for i in range(len(Hl)):
+        T = np.array([temp[0], Tmx[i], temp[-1]])
+        C = np.array([Cmin[i], Cmx[i], Cpl[i]])
+        hw = np.array([Hl[i], Hr[i]])
+        F = np.array([fleft[i], fright[i]])
+        
+        s, cs, L, E, D = s_fun_L(hw, C, F, T, temp)
+        
+        sesq = [sini[i]]
+        for a in range(1,len(temp)):
+            sesq.append(sesq[-1]+integrate.simps(cs[a-1:a+1], x=temp[a-1:a+1], even='avg')/(temp[a]-0.05))
+        
+        matrix.append(sesq.copy())
+        
+    return matrix
+        
