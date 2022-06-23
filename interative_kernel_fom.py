@@ -297,6 +297,8 @@ s = np.zeros([Nline_new, Ncol_new]) #total entropy in J/kgK
 
 for j in range(Ncol_new):
     for i in range(Nline_new):
+        cT_aux[i] =  0
+    for i in range(Nline_new):
         cT_aux[i] =  c_fit[i,j]/T_fit[i]
         s[i,j] = s0[j] + integrate.simps(cT_aux, x=T_fit, dx=dT_new,even='avg')
         #It could be necessary apply the following filters
