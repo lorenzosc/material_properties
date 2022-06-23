@@ -66,16 +66,13 @@ with open(path, "r") as ref_file:
 #%% Option: processing experimental data - if necessary
 
 #Do you wish to reduce the available experimental data? 
-
 reduce_data = str(input("Do you wish to reduce the available experimental data? (y/n)\n"))
-#If not, keep the values of Trange and Tinc equals to zero (0)
 if reduce_data == "n":
     Trange = 0
     Tinc = 0
 
 Tcut_lower = 0
 Tcut_upper = 0 
-# Trange = reduce temperature range
 if reduce_data == "y":
     reduce_range = str(input("Do you wish to reduce the temperature range? (y/n)\n"))
     Trange = 0
