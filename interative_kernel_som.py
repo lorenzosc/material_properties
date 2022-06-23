@@ -24,7 +24,7 @@ Ncol = int(1 + (H_f - H_i)/dH) #Number of columns - represents experimental fiel
 #vectors to read original data
 T_exp = np.zeros([Nline]) 
 Tad_exp = np.zeros([Nline])
-H_exp = np.linspace(H_i, H_f, int(np.round((H_f - H_i)/dH))) 
+H_exp = np.linspace(H_i, H_f, 1+int(np.round((H_f - H_i)/dH))) 
 s0_exp = np.zeros([Ncol]) 
 c_exp = np.zeros([Nline, Ncol])
 dS_exp = np.zeros([Nline, Ncol])
