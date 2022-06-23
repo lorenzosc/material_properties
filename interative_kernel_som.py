@@ -1,4 +1,3 @@
-#Pacotes
 import numpy as np
 from mpmath import mp
 import matplotlib.pyplot as plt
@@ -6,9 +5,9 @@ from scipy import optimize
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 import scipy.integrate as integrate
+import functions
 
-
-#%% Inital information: defining ranges of experimental data
+#%% Initial information: defining ranges of experimental data
 
 T_i = float(input("Initial Temperature for experimental data (K): "))
 T_f = float(input("Final Temperature for experimental data (K): "))
@@ -144,7 +143,15 @@ if Trange == 1 and Tinc == 1:
         cont += 1  
         
         
-#determining the initial value of entropy s0 x H @ T = Tinitial
+#importing the initial value of entropy s0 x H @ T = T_i
+path = str(input("Directory and name of .txt file with initial entropy data: "))
+j=0
+with open(path, "r") as ref_file:
+    for line in ref_file:  
+        values = line.split()
+        if j > 0: #do not read the header
+            s0_exp[j-1] = values[0]
+        j += 1    
 s0_exp[0] = c_expp[0,0]/2
 for i in range(1, Ncol):
     s0_exp[i] = s0_exp[0] + dS_exp[0,i]
@@ -482,17 +489,14 @@ j=0
 with open(path, "r") as ref_file:
     for Tlines, line in enumerate(ref_file):
         pass
-    M0 = np.zeros([Tlines, Ncol+1])
-    MM0 = np.zeros([Ncol])
+    
+M0 = np.zeros([Tlines, Ncol+1])
+MM0 = np.zeros([Ncol])
+with open(path, "r") as ref_file:
     for line in ref_file:  
         values = line.split()
         if j > 0: #do not read the header
-            M0[j-1, 0] = values[0]
-            M0[j-1, 1] = values[1]
-            M0[j-1, 2] = values[2]
-            M0[j-1, 3] = values[3]
-            M0[j-1, 4] = values[4]
-            M0[j-1, 5] = values[5]
+            M0[j-1, :] = values[:]
         j += 1
 
 #picking the correct M0 values due to possible temperature range correction
@@ -659,7 +663,7 @@ for i in range(Nline_new):
 print("Final plots for verification")
 plt.figure(figsize=(12, 8))
 cmap = get_cmap(len(dS_exp)+2)
-for i in range(1, len(dS_exp)):
+for i in range(1, len(dS_exp[0])):
     plt.scatter(T_exp[:], dS_exp[:,i], label='exp', color=cmap(i))
 plt.plot(T_fit[:], dS_MxTexp[:,:], label='fit', color=cmap(i+1))
 plt.xlabel('T (K)')
